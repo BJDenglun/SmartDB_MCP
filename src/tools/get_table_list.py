@@ -20,6 +20,31 @@ class GetTableListTool(ToolsBase):
     用户信息从请求头中的认证信息获取。
     """
     
+    def _detect_db_type(self, pool_obj) -> str:
+        """检测数据库类型"""
+        # 先尝试从 database_url 中获取类型
+        if hasattr(pool_obj, 'database_url'):
+            url = pool_obj.database_url.lower()
+            if 'mysql' in url:
+                return 'mysql'
+            elif 'postgresql' in url or 'postgres' in url:
+                return 'postgresql'
+            elif 'oracle' in url:
+                return 'oracle'
+            elif 'dm' in url or 'dameng' in url:
+                return 'dameng'
+        # 备用：从对象字符串检测
+        pool_str = str(pool_obj).lower()
+        if 'mysql' in pool_str:
+            return 'mysql'
+        elif 'postgresql' in pool_str or 'postgres' in pool_str:
+            return 'postgresql'
+        elif 'dameng' in pool_str or 'dm' in pool_str:
+            return 'dameng'
+        elif 'oracle' in pool_str:
+            return 'oracle'
+        return 'unknown'
+    
     name = "get_table_list"
     description = (
         "获取指定连接池和数据库下，当前用户有权限访问的表名称和注释列表，以及表结构信息。"
@@ -173,8 +198,15 @@ class GetTableListTool(ToolsBase):
                                         key_marker = f" [{col_key}]" if col_key else ""
                                         comment_str = f" ({col_comment})" if col_comment else ""
                                         output.append(f"   - {col_name} ({col_type}) {col_null}{key_marker}{comment_str}")
-                            elif 'dameng' in str(pool_obj).lower() or 'oracle' in str(pool_obj).lower():
-                                result = conn.execute(text(f"SELECT COLUMN_NAME, DATA_TYPE, DATA_LENGTH, DATA_DEFAULT, NULLABLE, COMMENTS FROM USER_COL_TAB_COLUMNS WHERE TABLE_NAME='{table}' ORDER BY COLUMN_ID"))
+                            elif 'dameng' in str(pool_obj).lower():
+                                result = conn.execute(text(f"SELECT COLUMN_NAME, DATA_TYPE, DATA_LENGTH FROM USER_TAB_COLUMNS WHERE TABLE_NAME='{table}' ORDER BY COLUMN_ID"))
+                                for row in result:
+                                    col_name = row[0]
+                                    col_type = f"{row[1]}({row[2]})" if row[2] else row[1]
+                                    if show_all_cols or col_name.lower() in [c.lower() for c in cols_allowed]:
+                                        output.append(f"   - {col_name} ({col_type})")
+                            elif 'oracle' in str(pool_obj).lower():
+                                result = conn.execute(text(f"SELECT COLUMN_NAME, DATA_TYPE, DATA_LENGTH, DATA_DEFAULT, NULLABLE, COMMENTS FROM USER_TAB_COLUMNS WHERE TABLE_NAME='{table}' ORDER BY COLUMN_ID"))
                                 for row in result:
                                     col_name = row[0]
                                     col_type = f"{row[1]}({row[2]})" if row[2] else row[1]

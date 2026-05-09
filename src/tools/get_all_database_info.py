@@ -96,7 +96,11 @@ class GetAllDatabaseInfoTool(ToolsBase):
             
             # 确定要处理的池
             if pool_name:
-                pools_to_check = [pool_name] if pool_name in allowed_pools else []
+                # 如果指定了池名，检查是否有权限（* 可匹配任何池）
+                if "*" in allowed_pools or pool_name in allowed_pools:
+                    pools_to_check = [pool_name]
+                else:
+                    pools_to_check = []
             elif "*" in allowed_pools:
                 pools_to_check = server_pools
             else:
@@ -133,16 +137,22 @@ class GetAllDatabaseInfoTool(ToolsBase):
                                     result = conn.execute(text("SELECT datname FROM pg_database WHERE datname NOT IN ('postgres', 'template0', 'template1')"))
                                     actual_databases = [row[0] for row in result]
                                 elif db_type == 'dameng':
-                                    # DM 使用 V$DATABASE 或 V$INSTANCE
+                                    # Dameng: 获取当前用户可访问的所有模式/所有者
+                                    # 方案1: 从 ALL_TABLES 获取当前用户有权限访问的所有模式
                                     try:
-                                        result = conn.execute(text("SELECT NAME FROM V$DATABASE"))
+                                        result = conn.execute(text("SELECT DISTINCT OWNER FROM ALL_TABLES ORDER BY OWNER"))
                                         actual_databases = [row[0] for row in result]
-                                    except:
-                                        # 备用方案：获取用户下的表所属的模式
-                                        result = conn.execute(text("SELECT DISTINCT SCHEMA_NAME FROM USER_SCHEDULER_JOBS UNION SELECT DISTINCT OWNER FROM USER_TABLES"))
-                                        actual_databases = [row[0] for row in result] if result else []
+                                    except Exception as e1:
+                                        actual_databases = []
                                     if not actual_databases:
-                                        # 最简单的方案：获取当前用户
+                                        # 方案2: 从 USER_TABLES 获取当前模式的表
+                                        try:
+                                            result = conn.execute(text("SELECT DISTINCT OWNER FROM USER_TABLES ORDER BY OWNER"))
+                                            actual_databases = [row[0] for row in result]
+                                        except:
+                                            pass
+                                    if not actual_databases:
+                                        # 方案3: 获取当前会话的模式
                                         try:
                                             result = conn.execute(text("SELECT SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA') FROM DUAL"))
                                             schemas = [row[0] for row in result]
@@ -260,8 +270,17 @@ class GetAllDatabaseInfoTool(ToolsBase):
                                                     if show_all_cols or col_name.lower() in [c.lower() for c in cols_allowed]:
                                                         comment_str = f" ({col_comment})" if col_comment else ""
                                                         output.append(f"        {col_name} ({col_type}){comment_str}")
-                                            elif db_type in ['dameng', 'oracle']:
-                                                result = conn.execute(text(f"SELECT COLUMN_NAME, DATA_TYPE, DATA_LENGTH, COMMENTS FROM USER_COL_TAB_COLUMNS WHERE TABLE_NAME='{table}' ORDER BY COLUMN_ID"))
+                                            elif db_type == 'dameng':
+                                                result = conn.execute(text(f"SELECT COLUMN_NAME, DATA_TYPE, DATA_LENGTH FROM USER_TAB_COLUMNS WHERE TABLE_NAME='{table}' ORDER BY COLUMN_ID"))
+                                                for row in result:
+                                                    col_name = row[0]
+                                                    col_type = f"{row[1]}({row[2]})" if row[2] else row[1]
+                                                    col_comment = ""
+                                                    if show_all_cols or col_name.lower() in [c.lower() for c in cols_allowed]:
+                                                        comment_str = f" ({col_comment})" if col_comment else ""
+                                                        output.append(f"        {col_name} ({col_type}){comment_str}")
+                                            elif db_type == 'oracle':
+                                                result = conn.execute(text(f"SELECT COLUMN_NAME, DATA_TYPE, DATA_LENGTH, COMMENTS FROM USER_TAB_COLUMNS WHERE TABLE_NAME='{table}' ORDER BY COLUMN_ID"))
                                                 for row in result:
                                                     col_name = row[0]
                                                     col_type = f"{row[1]}({row[2]})" if row[2] else row[1]
