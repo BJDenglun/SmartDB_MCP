@@ -12,11 +12,11 @@ from contextlib import contextmanager
 from pymysql import MySQLError
 from sqlalchemy import text
 
-from config.dbconfig import get_db_config, get_role_permissions
 from connection.pool_manager import MultiDBPoolManager
 from core.exceptions import SQLPermissionError
 
 logger = logging.getLogger(__name__)
+
 
 class SQLOperation(str, Enum):
     """SQL 操作类型枚举"""
@@ -50,6 +50,7 @@ class SQLOperation(str, Enum):
         except ValueError:
             raise ValueError(f"不支持的SQL操作类型: {value}")
 
+
 @dataclass
 class SQLResult:
     """SQL执行结果"""
@@ -80,12 +81,6 @@ class ExecuteSqlUtil:
             Exception: 当执行出错时
         """
         try:
-
-            # 检查权限
-            operations = ExecuteSqlUtil.extract_operations(statement)
-
-            ExecuteSqlUtil.check_permissions(operations)
-
             pool = MultiDBPoolManager.get_pool(pool_name)
 
             with pool.connection() as conn:
@@ -147,8 +142,9 @@ class ExecuteSqlUtil:
                 success=False,
                 message=f"执行失败: {str(e)}"
             )
+    
     @classmethod
-    def execute_multiple_statements(cls,pool_name: str, query: str) -> List[SQLResult]:
+    def execute_multiple_statements(cls, pool_name: str, query: str) -> List[SQLResult]:
         """执行多条SQL语句
         
         Args:
@@ -163,7 +159,7 @@ class ExecuteSqlUtil:
         
         for statement in statements:
             try:
-                result = ExecuteSqlUtil.execute_single_statement(pool_name,statement)
+                result = ExecuteSqlUtil.execute_single_statement(pool_name, statement)
                 results.append(result)
             except Exception as e:
                 logger.warning(f"SQL执行警告: {e}, SQL: {statement}")
@@ -173,6 +169,7 @@ class ExecuteSqlUtil:
                 ))
                 
         return results
+    
     @classmethod
     def format_result(cls, result: SQLResult) -> str:
         """格式化SQL执行结果
@@ -181,7 +178,7 @@ class ExecuteSqlUtil:
             result: SQL执行结果
 
         Returns:
-            格式化后的结果字符串f
+            格式化后的结果字符串
         """
         if not result.success:
             return result.message
@@ -226,28 +223,3 @@ class ExecuteSqlUtil:
             op for op in SQLOperation
             if re.search(rf'\b{op.value}\b', sql)
         }
-
-    @staticmethod
-    def check_permissions(operations: Set[SQLOperation]) -> bool:
-        """检查操作权限
-
-        Args:
-            operations: 操作类型集合
-
-        Returns:
-            是否有权限执行所有操作
-
-        Raises:
-            SQLPermissionError: 当权限不足时
-        """
-        config = get_db_config()
-        role = config.get("role", "readonly")  # 默认为只读角色
-        allowed = {SQLOperation.from_str(op) for op in get_role_permissions(role)}
-        unauthorized = operations - allowed
-
-        if unauthorized:
-            raise SQLPermissionError(
-                f"权限不足: 当前角色无权执行以下操作: {', '.join(op.value for op in unauthorized)}"
-            )
-        return True
-

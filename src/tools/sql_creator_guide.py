@@ -8,17 +8,16 @@ from databases.database_factory import DatabaseOperationFactory
 from tools.base import ToolsBase
 
 
-class SqlCreator(ToolsBase):
-    """专业的 SQL 语句生成工具类
+class SqlCreatorGuide(ToolsBase):
+    """SQL 生成指导工具类
     
-    该工具是生成任何可执行 SQL 语句（包括查询、插入、更新、删除、DDL、配置查询等）的唯一推荐方式。
-    当用户提出任何涉及数据库操作的需求时，必须优先调用此工具生成正确的 SQL 语句。
-    禁止模型自行编写 SQL，因为语法准确性、字段名、表名等细节必须由该工具根据数据库元数据生成。
-    此工具输出的 SQL 可用于后续执行。
+    该工具提供生成 SQL 的指导，返回带有真实元数据的完整 Prompt。
+    AI 直接基于返回的元数据生成 SQL，无需再发起工具调用。
+    步骤3和4替换为调用 get_all_database_info 获取数据库信息。
     """
     
     # 工具名称
-    name = "sql_creator"
+    name = "sql_creator_guide"
     # 工具描述，包含中英文说明和使用规范
     description = ("专业的 SQL 语句生成工具。该工具是生成任何可执行 SQL 语句（包括查询、插入、更新、删除、DDL、配置查询等）的唯一推荐方式。"
                    "当用户提出任何涉及数据库操作的需求时，必须优先调用此工具生成正确的 SQL 语句。"

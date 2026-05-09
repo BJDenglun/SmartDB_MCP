@@ -1,0 +1,8 @@
+{
+  "mcp-server-dev": {
+    "enabled": true,
+    "gitUrl": "https://github.com/anthropics/claude-plugins-official/tree/main/plugins/mcp-server-dev",
+    "ref": "main",
+    "installedCommit": "76b35e91d1c99c090b1a08dade53bcc5e352c1b2"
+  }
+}

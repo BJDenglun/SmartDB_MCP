@@ -1,0 +1,90 @@
+{
+  "roles": {
+    "admin": {
+      "description": "管理员，拥有完全访问权限",
+      "max_rows": 10000,
+      "allowed_pools": ["*"],
+      "pools": {
+        "*": {
+          "allowed_databases": ["*"],
+          "allowed_tables": {
+            "*": ["*"]
+          },
+          "allowed_columns": {
+            "*.*": ["*"]
+          },
+          "row_filters": {}
+        }
+      },
+      "sql_operations": ["SELECT", "INSERT", "UPDATE", "DELETE", "CREATE", "ALTER", "DROP", "TRUNCATE", "SHOW", "DESCRIBE", "EXPLAIN"]
+    },
+    "analyst": {
+      "description": "分析师，只读访问部分数据",
+      "max_rows": 1000,
+      "allowed_pools": ["default", "mysql"],
+      "pools": {
+        "default": {
+          "allowed_databases": ["*"],
+          "allowed_tables": {
+            "*": ["*"]
+          },
+          "allowed_columns": {
+            "*.*": ["*"]
+          },
+          "row_filters": {}
+        },
+        "mysql": {
+          "allowed_databases": ["bitables"],
+          "allowed_tables": {
+            "bitables": ["*"]
+          },
+          "allowed_columns": {
+            "bitables.*": ["*"]
+          },
+          "row_filters": {
+            "bitables.orders": "department = 'sales'"
+          }
+        }
+      },
+      "sql_operations": ["SELECT", "SHOW", "DESCRIBE", "EXPLAIN"]
+    },
+    "developer": {
+      "description": "开发者，可读写指定表",
+      "max_rows": 500,
+      "allowed_pools": ["default"],
+      "pools": {
+        "default": {
+          "allowed_databases": ["bitables"],
+          "allowed_tables": {
+            "bitables": ["users", "products", "orders"]
+          },
+          "allowed_columns": {
+            "bitables.users": ["id", "name", "email", "created_at"],
+            "bitables.products": ["*"],
+            "bitables.orders": ["*"]
+          },
+          "row_filters": {}
+        }
+      },
+      "sql_operations": ["SELECT", "INSERT", "UPDATE", "DELETE", "SHOW", "DESCRIBE", "EXPLAIN"]
+    },
+    "readonly": {
+      "description": "只读用户",
+      "max_rows": 100,
+      "allowed_pools": ["default"],
+      "pools": {
+        "default": {
+          "allowed_databases": ["SYSDBA"],
+          "allowed_tables": {
+            "SYSDBA": ["s60_amo_sca_invest"]
+          },
+          "allowed_columns": {
+            "SYSDBA.s60_amo_sca_invest": ["*"]
+          },
+          "row_filters": {}
+        }
+      },
+      "sql_operations": ["SELECT", "SHOW", "DESCRIBE", "EXPLAIN"]
+    }
+  }
+}

@@ -49,8 +49,13 @@ class OraclePoolCreator(DatabasePoolCreator):
     def create_pool(self, pool_name: str, config: Dict[str, Any]) -> SQLAlchemyConnectionPool:
         user = quote_plus(config['user'])
         password = quote_plus(config['password'])
-        service_name = config.get("service_name", "ORCL")
-        database_url = f"oracle+oracledb://{user}:{password}@{config['host']}:{config['port']}/{service_name}"
+        host = config['host']
+        port = config['port']
+        sid = config.get('sid', config.get('database', 'XE'))
+        
+        # 使用 Easy Connect 格式连接
+        database_url = f"oracle+oracledb://{user}:{password}@{host}:{port}/{sid}"
+        
         return SQLAlchemyConnectionPool(
             database_url=database_url,
             pool_type=config.get("pool_type", "queue"),

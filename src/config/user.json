@@ -1,0 +1,22 @@
+[
+  {
+    "name": "admin",
+    "key": "sk_admin_123456",
+    "role": "admin"
+  },
+  {
+    "name": "analyst",
+    "key": "sk_analyst_123456",
+    "role": "analyst"
+  },
+  {
+    "name": "developer",
+    "key": "sk_developer_123456",
+    "role": "developer"
+  },
+  {
+    "name": "readonly",
+    "key": "sk_readonly_123456",
+    "role": "readonly"
+  }
+]

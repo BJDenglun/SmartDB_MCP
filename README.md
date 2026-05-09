@@ -43,6 +43,13 @@ Compared to similar products, SmartDB not only provides basic database connectio
 DATABASE_CONFIG_FILE=/Volumes/SmartDB/src/config/database_config.json
 
 #========OAuth2========
+# Whether API Key authentication is enabled (true/false)
+API_KEY_ENABLED=true
+# API user configuration file path; contains name, apikey, department, and role definitions
+API_USER_CONFIG_FILE=./src/config/user_api_keys.json
+# Legacy single API Key value (for backward compatibility)
+API_KEY=sk_smartdb_xxxxxxxxxxxxxxxxxxxxxxxxxxxx
+
 # OAuth2 client ID
 CLIENT_ID=smart_db_client_id
 # OAuth2 client secret
