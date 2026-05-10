@@ -153,16 +153,23 @@ class PermissionChecker:
         if not self._check_database_access(pool_name, database):
             return False
         
-        # 获取该数据库允许的表
-        tables_config = pool_config.get("allowed_tables", {}).get(database, [])
-        global_tables = pool_config.get("allowed_tables", {}).get("*", [])
+        # 获取该数据库允许的表 - 优先使用数据库特定的配置
+        tables_config = pool_config.get("allowed_tables", {})
+        tables_for_db = tables_config.get(database, [])
+        global_tables = tables_config.get("*", [])
+        
+        # 如果数据库没有特定配置且有通配符配置，使用通配符
+        if not tables_for_db and global_tables:
+            tables_for_db = global_tables
         
         # 检查通配符
-        if "*" in tables_config or "*" in global_tables:
+        if "*" in tables_for_db:
             return True
         
-        # 检查具体表名
-        return table.lower() in [t.lower() for t in tables_config]
+        # 检查具体表名（不区分大小写）
+        table_lower = table.lower()
+        allowed_lower = [t.lower() for t in tables_for_db]
+        return table_lower in allowed_lower
     
     def _check_column_access(self, pool_name: str, database: str, table: str, columns: List[str]) -> Tuple[bool, List[str]]:
         """检查列访问权限，返回 (是否允许, 被拒绝的列列表)"""
@@ -226,9 +233,16 @@ class PermissionChecker:
         tables = []
         sql_upper = sql.upper()
         
-        # 匹配 FROM 和 JOIN 后面的表名
+        # 匹配 FROM 和 JOIN 后面的表名，支持 schema.table 格式
+        # 处理 FETCH FIRST, ORDER BY, WHERE 等子句
+        # 移除 FETCH FIRST、ORDER BY 等子句以便于解析
+        clean_sql = re.sub(r'\s+FETCH\s+FIRST\s+\d+\s+ROWS\s+ONLY', '', sql_upper, flags=re.IGNORECASE)
+        clean_sql = re.sub(r'\s+ORDER\s+BY\s+.*', '', clean_sql, flags=re.IGNORECASE)
+        clean_sql = re.sub(r'\s+WHERE\s+.*', '', clean_sql, flags=re.IGNORECASE)
+        
+        # 匹配 FROM/JOIN 后面的表名 (可能带有 schema.)
         pattern = r'(?:FROM|JOIN)\s+(?:(\w+)\.)?(\w+)'
-        matches = re.findall(pattern, sql_upper)
+        matches = re.findall(pattern, clean_sql)
         
         for db, table in matches:
             database = db if db else "default"

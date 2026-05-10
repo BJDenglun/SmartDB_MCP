@@ -8,7 +8,7 @@
         "*": {
           "allowed_databases": ["*"],
           "allowed_tables": {
-            "*": ["projectsinfo"]
+            "*": ["*"]
           },
           "allowed_columns": {
             "*.*": ["*"]

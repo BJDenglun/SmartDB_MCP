@@ -1,6 +1,6 @@
 """
 获取表列表工具
-根据 pool 和 database 名称，返回当前用户有权限的 table 名称和注释列表，以及表结构信息
+根据连接池和数据库名称，返回当前用户有权限访问的表名称列表
 """
 
 from typing import Dict, Sequence, Any
@@ -11,45 +11,34 @@ from tools.base import ToolsBase
 from permission.permission_checker import PermissionChecker
 from permission.context import get_current_username
 from connection.pool_manager import MultiDBPoolManager
+from config.dbconfig import get_db_configs
 
 
 class GetTableListTool(ToolsBase):
     """获取表列表工具类
     
-    该工具根据连接池和数据库名称，返回当前用户有权限访问的表名称、注释和结构信息。
+    该工具根据连接池和数据库名称，返回当前用户有权限访问的表名称列表。
+    只返回表名，不返回表结构（表结构由 get_table_desc 提供）。
     用户信息从请求头中的认证信息获取。
     """
     
-    def _detect_db_type(self, pool_obj) -> str:
-        """检测数据库类型"""
-        # 先尝试从 database_url 中获取类型
-        if hasattr(pool_obj, 'database_url'):
-            url = pool_obj.database_url.lower()
-            if 'mysql' in url:
-                return 'mysql'
-            elif 'postgresql' in url or 'postgres' in url:
-                return 'postgresql'
-            elif 'oracle' in url:
-                return 'oracle'
-            elif 'dm' in url or 'dameng' in url:
-                return 'dameng'
-        # 备用：从对象字符串检测
-        pool_str = str(pool_obj).lower()
-        if 'mysql' in pool_str:
-            return 'mysql'
-        elif 'postgresql' in pool_str or 'postgres' in pool_str:
-            return 'postgresql'
-        elif 'dameng' in pool_str or 'dm' in pool_str:
-            return 'dameng'
-        elif 'oracle' in pool_str:
-            return 'oracle'
+    def _detect_db_type(self, pool_name: str) -> str:
+        """检测数据库类型 - 从配置中获取"""
+        try:
+            db_configs = get_db_configs()
+            if pool_name in db_configs:
+                db_type = db_configs[pool_name].get("type", "unknown")
+                return db_type.lower()
+        except Exception:
+            pass
         return 'unknown'
     
     name = "get_table_list"
     description = (
-        "获取指定连接池和数据库下，当前用户有权限访问的表名称和注释列表，以及表结构信息。"
-        "根据 pool_name 和 database 参数返回表列表。"
-        "Get table list with comments for specified pool and database."
+        "获取指定连接池和数据库下，当前用户有权限访问的表名称列表。"
+        "根据 pool_name 和 database 参数返回表名列表（不含结构信息）。"
+        "表结构信息请使用 get_table_desc 工具获取。"
+        "Get table name list for specified pool and database (without structure info)."
     )
 
     def get_tool_description(self) -> Tool:
@@ -71,6 +60,20 @@ class GetTableListTool(ToolsBase):
                 "required": ["pool_name", "database"]
             }
         )
+
+    def _is_table_allowed(self, table: str, allowed_tables: list) -> bool:
+        """检查表是否在允许列表中
+        
+        Args:
+            table: 表名
+            allowed_tables: 允许的表名列表
+            
+        Returns:
+            True 如果表在允许列表中，或者列表为空（无限制）
+        """
+        if not allowed_tables:
+            return True  # 无限制，允许所有表
+        return table.lower() in [t.lower() for t in allowed_tables]
 
     async def run_tool(self, arguments: Dict[str, Any]) -> Sequence[TextContent]:
         try:
@@ -97,142 +100,72 @@ class GetTableListTool(ToolsBase):
             pool_config = checker.get_pool_config(pool_name)
             allowed_dbs = pool_config.get("allowed_databases", []) if pool_config else []
             
-            # 如果权限是 *，则允许访问任何数据库
+            # 如果权限不是 *，则检查数据库是否在允许列表中
             if "*" not in allowed_dbs and database not in allowed_dbs:
                 return [TextContent(type="text", text=f"错误: 无权访问数据库 {database}。允许的数据库: {', '.join(allowed_dbs)}")]
             
-            # 获取表权限
+            # 获取表权限 - 优先使用数据库特定的配置，否则使用通配符配置
             allowed_tables = pool_config.get("allowed_tables", {}).get(database, []) if pool_config else []
-            allowed_columns = pool_config.get("allowed_columns", {}) if pool_config else {}
-            
-            output = []
-            output.append(f"=== 表列表 - 连接池: {pool_name}, 数据库: {database} ===")
-            output.append(f"用户名: {username}")
-            output.append("")
+            if not allowed_tables:
+                allowed_tables = pool_config.get("allowed_tables", {}).get("*", []) if pool_config else []
             
             try:
                 pool_obj = MultiDBPoolManager.get_pool(pool_name)
                 if not pool_obj:
                     return [TextContent(type="text", text=f"错误: 连接池 {pool_name} 不存在")]
                 
+                # 从配置获取数据库类型
+                db_type = self._detect_db_type(pool_name)
+                
                 with pool_obj.connection() as conn:
                     from sqlalchemy import text
                     
-                    # 获取数据库类型
-                    db_type = 'unknown'
-                    try:
-                        result = conn.execute(text("SELECT 1"))
-                        # 尝试检测数据库类型
-                        if 'mysql' in str(pool_obj).lower():
-                            db_type = 'mysql'
-                        elif 'postgresql' in str(pool_obj).lower():
-                            db_type = 'postgresql'
-                        elif 'dameng' in str(pool_obj).lower():
-                            db_type = 'dameng'
-                        elif 'oracle' in str(pool_obj).lower():
-                            db_type = 'oracle'
-                    except:
-                        pass
-                    
-                    # 获取表列表
+                    # 获取表列表 - 根据数据库类型使用不同的查询
                     tables = []
                     try:
-                        if db_type == 'mysql' or 'mysql' in str(pool_obj).lower():
+                        if db_type == 'mysql':
                             result = conn.execute(text(f"SHOW TABLES FROM `{database}`"))
                             tables = [row[0] for row in result]
-                        elif 'postgresql' in str(pool_obj).lower():
+                        elif db_type == 'postgresql':
                             result = conn.execute(text(f"SELECT table_name FROM information_schema.tables WHERE table_schema = '{database}'"))
                             tables = [row[0] for row in result]
-                        elif 'dameng' in str(pool_obj).lower() or 'oracle' in str(pool_obj).lower():
+                        elif db_type == 'dameng':
+                            # Dameng: 尝试从 USER_TABLES 获取当前 schema 的表
                             result = conn.execute(text("SELECT TABLE_NAME FROM USER_TABLES"))
                             tables = [row[0] for row in result]
+                        elif db_type == 'oracle':
+                            result = conn.execute(text("SELECT TABLE_NAME FROM USER_TABLES"))
+                            tables = [row[0] for row in result]
+                        elif db_type == 'mssqlserver':
+                            result = conn.execute(text(f"SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = '{database}'"))
+                            tables = [row[0] for row in result]
+                        else:
+                            # 未知数据库类型，尝试通用的 USER_TABLES
+                            try:
+                                result = conn.execute(text("SELECT TABLE_NAME FROM USER_TABLES"))
+                                tables = [row[0] for row in result]
+                            except:
+                                return [TextContent(type="text", text=f"错误: 不支持未知数据库类型 '{db_type}'")]
                     except Exception as e:
-                        output.append(f"获取表列表失败: {str(e)}")
-                        return [TextContent(type="text", text="\n".join(output))]
+                        return [TextContent(type="text", text=f"获取表列表失败: {str(e)}")]
                     
-                    # 过滤用户有权限的表
-                    if "*" not in allowed_tables:
-                        tables = [t for t in tables if t.lower() in [x.lower() for x in allowed_tables]]
+                    # 权限过滤：只返回用户有权限访问的表
+                    if allowed_tables:
+                        tables = [t for t in tables if self._is_table_allowed(t, allowed_tables)]
                     
                     if not tables:
-                        output.append("没有可访问的表")
-                        return [TextContent(type="text", text="\n".join(output))]
+                        return [TextContent(type="text", text=f"连接池: {pool_name}, 数据库: {database} - 没有可访问的表")]
                     
-                    output.append(f"可访问的表 ({len(tables)}):")
-                    output.append("")
+                    # 返回简洁的表名列表
+                    output = []
+                    output.append(f"[{pool_name}] {database}")
+                    for table in sorted(tables):
+                        output.append(table)
                     
-                    for table in tables:
-                        # 获取表注释
-                        table_comment = ""
-                        try:
-                            if 'mysql' in str(pool_obj).lower():
-                                result = conn.execute(text(f"SELECT TABLE_COMMENT FROM information_schema.TABLES WHERE TABLE_SCHEMA='{database}' AND TABLE_NAME='{table}'"))
-                                row = result.fetchone()
-                                if row and row[0]:
-                                    table_comment = f" - {row[0]}"
-                            elif 'dameng' in str(pool_obj).lower() or 'oracle' in str(pool_obj).lower():
-                                result = conn.execute(text(f"SELECT COMMENTS FROM USER_TAB_COMMENTS WHERE TABLE_NAME='{table}'"))
-                                row = result.fetchone()
-                                if row and row[0]:
-                                    table_comment = f" - {row[0]}"
-                        except:
-                            pass
-                        
-                        output.append(f"📋 {table}{table_comment}")
-                        
-                        # 获取列信息
-                        cols_allowed = allowed_columns.get(f"{database}.{table}", allowed_columns.get(f"*.{table}", []))
-                        show_all_cols = "*" in cols_allowed or not cols_allowed
-                        
-                        try:
-                            if 'mysql' in str(pool_obj).lower():
-                                result = conn.execute(text(f"SHOW FULL COLUMNS FROM `{database}`.`{table}`"))
-                                for row in result:
-                                    col_name = row[0]
-                                    col_type = row[1]
-                                    col_null = "NULL" if row[3] == "YES" else "NOT NULL"
-                                    col_key = row[4] if row[4] else ""
-                                    col_comment = row[8] if len(row) > 8 and row[8] else ""
-                                    
-                                    if show_all_cols or col_name.lower() in [c.lower() for c in cols_allowed]:
-                                        key_marker = f" [{col_key}]" if col_key else ""
-                                        comment_str = f" ({col_comment})" if col_comment else ""
-                                        output.append(f"   - {col_name} ({col_type}) {col_null}{key_marker}{comment_str}")
-                            elif 'dameng' in str(pool_obj).lower():
-                                result = conn.execute(text(f"SELECT COLUMN_NAME, DATA_TYPE, DATA_LENGTH FROM USER_TAB_COLUMNS WHERE TABLE_NAME='{table}' ORDER BY COLUMN_ID"))
-                                for row in result:
-                                    col_name = row[0]
-                                    col_type = f"{row[1]}({row[2]})" if row[2] else row[1]
-                                    if show_all_cols or col_name.lower() in [c.lower() for c in cols_allowed]:
-                                        output.append(f"   - {col_name} ({col_type})")
-                            elif 'oracle' in str(pool_obj).lower():
-                                result = conn.execute(text(f"SELECT COLUMN_NAME, DATA_TYPE, DATA_LENGTH, DATA_DEFAULT, NULLABLE, COMMENTS FROM USER_TAB_COLUMNS WHERE TABLE_NAME='{table}' ORDER BY COLUMN_ID"))
-                                for row in result:
-                                    col_name = row[0]
-                                    col_type = f"{row[1]}({row[2]})" if row[2] else row[1]
-                                    col_null = "NULL" if row[4] == 'Y' else "NOT NULL"
-                                    col_comment = row[5] if row[5] else ""
-                                    
-                                    if show_all_cols or col_name.lower() in [c.lower() for c in cols_allowed]:
-                                        comment_str = f" ({col_comment})" if col_comment else ""
-                                        output.append(f"   - {col_name} ({col_type}) {col_null}{comment_str}")
-                        except:
-                            pass
-                        
-                        output.append("")
-                    
-                    # 显示行过滤信息
-                    row_filters = pool_config.get("row_filters", {}) if pool_config else {}
-                    if row_filters:
-                        output.append("\n【行过滤条件】")
-                        for table_key, filter_cond in row_filters.items():
-                            if database in table_key:
-                                output.append(f"  {table_key}: {filter_cond}")
+                    return [TextContent(type="text", text="\n".join(output))]
                     
             except Exception as e:
-                output.append(f"连接错误: {str(e)}")
-            
-            return [TextContent(type="text", text="\n".join(output))]
+                return [TextContent(type="text", text=f"连接错误: {str(e)}")]
             
         except Exception as e:
             return [TextContent(type="text", text=f"获取表列表异常: {str(e)}")]

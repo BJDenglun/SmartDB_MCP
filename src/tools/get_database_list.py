@@ -11,6 +11,7 @@ from tools.base import ToolsBase
 from permission.permission_checker import PermissionChecker, PermissionLevel
 from permission.context import get_current_username, get_current_user
 from connection.pool_manager import MultiDBPoolManager
+from config.dbconfig import get_db_configs
 
 
 class GetDatabaseListTool(ToolsBase):
@@ -20,29 +21,15 @@ class GetDatabaseListTool(ToolsBase):
     用户信息从请求头中自动获取，无需手动传入。
     """
     
-    def _detect_db_type(self, pool_obj) -> str:
-        """检测数据库类型"""
-        # 先尝试从 database_url 中获取类型
-        if hasattr(pool_obj, 'database_url'):
-            url = pool_obj.database_url.lower()
-            if 'mysql' in url:
-                return 'mysql'
-            elif 'postgresql' in url or 'postgres' in url:
-                return 'postgresql'
-            elif 'oracle' in url:
-                return 'oracle'
-            elif 'dm' in url or 'dameng' in url:
-                return 'dameng'
-        # 备用：从对象字符串检测
-        pool_str = str(pool_obj).lower()
-        if 'mysql' in pool_str:
-            return 'mysql'
-        elif 'postgresql' in pool_str or 'postgres' in pool_str:
-            return 'postgresql'
-        elif 'dameng' in pool_str or 'dm' in pool_str:
-            return 'dameng'
-        elif 'oracle' in pool_str:
-            return 'oracle'
+    def _detect_db_type(self, pool_name: str) -> str:
+        """检测数据库类型 - 从配置中获取"""
+        try:
+            db_configs = get_db_configs()
+            if pool_name in db_configs:
+                db_type = db_configs[pool_name].get("type", "unknown")
+                return db_type.lower()
+        except Exception:
+            pass
         return 'unknown'
     
     name = "get_database_list"
@@ -122,7 +109,7 @@ class GetDatabaseListTool(ToolsBase):
                             if pool_obj:
                                 with pool_obj.connection() as conn:
                                     from sqlalchemy import text
-                                    db_type = self._detect_db_type(pool_obj)
+                                    db_type = self._detect_db_type(pool_name)
                                     output.append("数据库列表:")
                                     if db_type == 'mysql':
                                         result = conn.execute(text("SHOW DATABASES"))
@@ -159,6 +146,11 @@ class GetDatabaseListTool(ToolsBase):
                                         actual_dbs = [row[0] for row in result]
                                         for db in actual_dbs:
                                             output.append(f"  - {db}")
+                                    elif db_type == 'mssqlserver':
+                                        result = conn.execute(text("SELECT name FROM sys.databases WHERE state_desc = 'ONLINE'"))
+                                        actual_dbs = [row[0] for row in result]
+                                        for db in actual_dbs:
+                                            output.append(f"  - {db}")
                                     else:
                                         output.append("  (未知数据库类型)")
                         except Exception as e:
@@ -185,7 +177,7 @@ class GetDatabaseListTool(ToolsBase):
                                 if pool_obj:
                                     with pool_obj.connection() as conn:
                                         from sqlalchemy import text
-                                        db_type = self._detect_db_type(pool_obj)
+                                        db_type = self._detect_db_type(p)
                                         if db_type == 'mysql':
                                             result = conn.execute(text("SHOW DATABASES"))
                                             actual_dbs = [row[0] for row in result if row[0] not in ('information_schema', 'mysql', 'performance_schema', 'sys')]
@@ -221,6 +213,12 @@ class GetDatabaseListTool(ToolsBase):
                                                 output.append(f"       - {db}")
                                         elif db_type == 'oracle':
                                             result = conn.execute(text("SELECT DISTINCT OWNER FROM ALL_TABLES WHERE OWNER NOT IN ('SYS', 'SYSTEM', 'SYSAUX') ORDER BY OWNER"))
+                                            actual_dbs = [row[0] for row in result]
+                                            output.append(f"     数据库列表:")
+                                            for db in actual_dbs:
+                                                output.append(f"       - {db}")
+                                        elif db_type == 'mssqlserver':
+                                            result = conn.execute(text("SELECT name FROM sys.databases WHERE state_desc = 'ONLINE'"))
                                             actual_dbs = [row[0] for row in result]
                                             output.append(f"     数据库列表:")
                                             for db in actual_dbs:

@@ -1,5 +1,6 @@
 from typing import Dict, Sequence, Any
 import time
+import re
 
 from mcp.types import TextContent, Tool
 
@@ -62,6 +63,83 @@ class ExecuteSQLTool(ToolsBase):
             }
         )
 
+    def _apply_row_filter(self, sql: str, row_filter: str) -> str:
+        """自动将行过滤条件应用到 SQL 查询中
+        
+        Args:
+            sql: 原始 SQL 语句
+            row_filter: 行过滤条件（如 "department = 'sales'"）
+            
+        Returns:
+            添加了行过滤条件的 SQL 语句
+        """
+        if not row_filter or not sql.strip().upper().startswith('SELECT'):
+            return sql
+        
+        # 解析 SQL 语句，查找表名和现有的 WHERE 子句
+        sql_upper = sql.strip().upper()
+        
+        # 提取表名（处理简单查询）
+        # 匹配 FROM table_name 或 FROM schema.table_name
+        from_pattern = r'(?:FROM|JOIN)\s+(?:(\w+)\.)?(\w+)'
+        tables = re.findall(from_pattern, sql_upper)
+        
+        if not tables:
+            return sql
+        
+        # 检查是否已有 WHERE 子句
+        has_where = re.search(r'\bWHERE\b', sql_upper)
+        
+        # 构建过滤条件 - 直接在现有 WHERE 后添加 AND，或创建新的 WHERE
+        if has_where:
+            # 在最后一个 WHERE 后添加 AND 条件
+            # 找到最后一个 WHERE 的位置
+            last_where_pos = sql_upper.rfind('WHERE')
+            # 在原 SQL 中找到对应位置
+            original_sql = sql
+            where_pos_in_original = len(sql) - len(sql_upper[last_where_pos:]) + sql_upper[last_where_pos:].find('WHERE')
+            
+            # 在 WHERE 后插入 AND 和过滤条件
+            # 找到 WHERE 后第一个 AND/ORDER/GROUP 等关键字的位置
+            remaining = sql[where_pos_in_original + 5:].strip()
+            
+            # 判断后续是否有 AND/OR/ORDER/GROUP/HAVING/LIMIT 等
+            keywords = ['ORDER', 'GROUP', 'HAVING', 'LIMIT', 'UNION', 'OFFSET']
+            keyword_match = re.match(r'(AND|OR)\s+', remaining, re.IGNORECASE)
+            
+            if keyword_match:
+                # 已经有 AND/OR，插入到它们之前
+                pos = where_pos_in_original + 5 + len(keyword_match.group(0))
+                return sql[:pos] + f"({row_filter}) AND " + sql[pos:]
+            else:
+                # 添加 AND 条件
+                # 找到需要插入的位置（在 ORDER/GROUP 等之前，或在语句末尾）
+                insert_pos = len(sql)
+                for keyword in keywords:
+                    match = re.search(rf'\b{keyword}\b', remaining, re.IGNORECASE)
+                    if match:
+                        keyword_pos = remaining.find(match.group(0))
+                        if keyword_pos < insert_pos - len(remaining):
+                            insert_pos = where_pos_in_original + 5 + keyword_pos
+                            break
+                
+                return sql[:insert_pos] + f" WHERE {row_filter}" + sql[insert_pos:]
+        else:
+            # 没有 WHERE 子句，添加到表名后
+            # 查找 FROM 后的表名结束位置
+            from_match = re.search(from_pattern, sql_upper)
+            if from_match:
+                # 找到表名结束位置，在原 SQL 中
+                table_end_in_original = from_match.end()
+                # 找到表名实际结束位置（在原 SQL 中）
+                original_from_pos = sql.find(from_match.group(0))
+                table_name = from_match.group(2)
+                table_name_end_in_original = original_from_pos + len(table_name)
+                
+                # 在表名后添加 WHERE 条件
+                return sql[:table_name_end_in_original] + f" WHERE {row_filter}" + sql[table_name_end_in_original:]
+        
+        return sql
 
     async def run_tool(self, arguments: Dict[str, Any]) -> Sequence[TextContent]:
         """执行SQL工具
@@ -95,6 +173,7 @@ class ExecuteSQLTool(ToolsBase):
         pool_name = arguments.get("pool_name", "default")
 
         # 执行权限检查（如果提供了用户名）
+        row_filter = None
         try:
             checker = PermissionChecker(username)
             perm_result = checker.check_sql_permission(query, pool_name)
@@ -109,6 +188,10 @@ class ExecuteSQLTool(ToolsBase):
                     pool_name=pool_name
                 )
                 return [TextContent(type="text", text=f"❌ 权限不足: {perm_result.message}")]
+            
+            # 获取行过滤条件（权限检查通过后获取）
+            row_filter = perm_result.row_filter
+            
         except Exception as e:
             # 权限检查失败，记录错误但不阻止执行
             import logging
@@ -116,6 +199,13 @@ class ExecuteSQLTool(ToolsBase):
 
         # 记录 SQL 执行开始时间
         start_time = time.time()
+        
+        # 应用行过滤条件
+        original_query = query
+        if row_filter:
+            query = self._apply_row_filter(query, row_filter)
+            import logging
+            logging.getLogger(__name__).info(f"应用行过滤条件: {row_filter} -> {query}")
         
         try:
             # 执行多条SQL语句
@@ -135,7 +225,7 @@ class ExecuteSQLTool(ToolsBase):
             # 记录审计日志
             log_sql_execution(
                 username=username,
-                sql=query,
+                sql=original_query,
                 pool_name=pool_name,
                 success=True,
                 result=final_result[:1000] if len(final_result) > 1000 else final_result,  # 限制结果长度
@@ -153,7 +243,7 @@ class ExecuteSQLTool(ToolsBase):
             # 记录审计日志
             log_sql_execution(
                 username=username,
-                sql=query,
+                sql=original_query,
                 pool_name=pool_name,
                 success=False,
                 result=str(e),

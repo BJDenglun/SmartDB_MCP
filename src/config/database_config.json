@@ -10,8 +10,8 @@
     "oracle": {
       "host": "127.0.0.1",
       "port": 1521,
-      "user": "SC",
-      "password": "SC123456",
+      "user": "SYSTEM",
+      "password": "A12345678",
       "type": "oracle",
       "service_name": "XE"
     },

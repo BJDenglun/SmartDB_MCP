@@ -12,6 +12,7 @@ from tools.base import ToolsBase
 from permission.permission_checker import PermissionChecker
 from permission.context import get_current_username
 from connection.pool_manager import MultiDBPoolManager
+from config.dbconfig import get_db_configs
 
 
 class GetAllDatabaseInfoTool(ToolsBase):
@@ -22,29 +23,15 @@ class GetAllDatabaseInfoTool(ToolsBase):
     用于大模型生成 SQL 时获取完整的数据库上下文。
     """
     
-    def _detect_db_type(self, pool_obj) -> str:
-        """检测数据库类型"""
-        # 先尝试从 database_url 中获取类型
-        if hasattr(pool_obj, 'database_url'):
-            url = pool_obj.database_url.lower()
-            if 'mysql' in url:
-                return 'mysql'
-            elif 'postgresql' in url or 'postgres' in url:
-                return 'postgresql'
-            elif 'oracle' in url:
-                return 'oracle'
-            elif 'dm' in url or 'dameng' in url:
-                return 'dameng'
-        # 备用：从对象字符串检测
-        pool_str = str(pool_obj).lower()
-        if 'mysql' in pool_str:
-            return 'mysql'
-        elif 'postgresql' in pool_str or 'postgres' in pool_str:
-            return 'postgresql'
-        elif 'dameng' in pool_str or 'dm' in pool_str:
-            return 'dameng'
-        elif 'oracle' in pool_str:
-            return 'oracle'
+    def _detect_db_type(self, pool_name: str) -> str:
+        """检测数据库类型 - 从配置中获取"""
+        try:
+            db_configs = get_db_configs()
+            if pool_name in db_configs:
+                db_type = db_configs[pool_name].get("type", "unknown")
+                return db_type.lower()
+        except Exception:
+            pass
         return 'unknown'
     
     name = "get_all_database_info"
@@ -120,6 +107,9 @@ class GetAllDatabaseInfoTool(ToolsBase):
                 # 获取数据库信息
                 allowed_databases = pool_config.get("allowed_databases", []) if pool_config else []
                 
+                # 从配置获取数据库类型
+                db_type = self._detect_db_type(pool)
+                
                 # 如果权限是 *，则从数据库获取实际数据库列表
                 actual_databases = []
                 if "*" in allowed_databases:
@@ -129,7 +119,6 @@ class GetAllDatabaseInfoTool(ToolsBase):
                             with pool_obj.connection() as conn:
                                 from sqlalchemy import text
                                 # 根据数据库类型获取数据库列表
-                                db_type = self._detect_db_type(pool_obj)
                                 if db_type == 'mysql':
                                     result = conn.execute(text("SHOW DATABASES"))
                                     actual_databases = [row[0] for row in result if row[0] not in ('information_schema', 'mysql', 'performance_schema', 'sys')]
@@ -138,21 +127,18 @@ class GetAllDatabaseInfoTool(ToolsBase):
                                     actual_databases = [row[0] for row in result]
                                 elif db_type == 'dameng':
                                     # Dameng: 获取当前用户可访问的所有模式/所有者
-                                    # 方案1: 从 ALL_TABLES 获取当前用户有权限访问的所有模式
                                     try:
                                         result = conn.execute(text("SELECT DISTINCT OWNER FROM ALL_TABLES ORDER BY OWNER"))
                                         actual_databases = [row[0] for row in result]
                                     except Exception as e1:
                                         actual_databases = []
                                     if not actual_databases:
-                                        # 方案2: 从 USER_TABLES 获取当前模式的表
                                         try:
                                             result = conn.execute(text("SELECT DISTINCT OWNER FROM USER_TABLES ORDER BY OWNER"))
                                             actual_databases = [row[0] for row in result]
                                         except:
                                             pass
                                     if not actual_databases:
-                                        # 方案3: 获取当前会话的模式
                                         try:
                                             result = conn.execute(text("SELECT SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA') FROM DUAL"))
                                             schemas = [row[0] for row in result]
@@ -161,6 +147,9 @@ class GetAllDatabaseInfoTool(ToolsBase):
                                             actual_databases = ['SYSDBA']
                                 elif db_type == 'oracle':
                                     result = conn.execute(text("SELECT DISTINCT OWNER FROM ALL_TABLES WHERE OWNER NOT IN ('SYS', 'SYSTEM', 'SYSAUX')"))
+                                    actual_databases = [row[0] for row in result]
+                                elif db_type == 'mssqlserver':
+                                    result = conn.execute(text("SELECT name FROM sys.databases WHERE state_desc = 'ONLINE'"))
                                     actual_databases = [row[0] for row in result]
                                 else:
                                     actual_databases = []
@@ -207,15 +196,12 @@ class GetAllDatabaseInfoTool(ToolsBase):
                         with pool_obj.connection() as conn:
                             from sqlalchemy import text
                             
-                            # 根据数据库类型获取表列表
-                            db_type = self._detect_db_type(pool_obj)
-                            
                             for db in actual_databases:
                                     
                                 output.append(f"\n    --- 数据库: {db} ---")
                                 
                                 try:
-                                    # 获取表列表
+                                    # 获取表列表 - 根据数据库类型和模式获取
                                     if db_type == 'mysql':
                                         result = conn.execute(text(f"SHOW TABLES FROM `{db}`"))
                                         tables = [row[0] for row in result]
@@ -223,17 +209,22 @@ class GetAllDatabaseInfoTool(ToolsBase):
                                         result = conn.execute(text(f"SELECT table_name FROM information_schema.tables WHERE table_schema = '{db}'"))
                                         tables = [row[0] for row in result]
                                     elif db_type == 'dameng':
-                                        result = conn.execute(text(f"SELECT TABLE_NAME FROM USER_TABLES"))
+                                        # 达梦数据库：按模式获取表列表
+                                        # 使用 ALL_TABLES 并指定 OWNER（模式）来区分不同模式下的表
+                                        result = conn.execute(text(f"SELECT TABLE_NAME FROM ALL_TABLES WHERE OWNER = '{db}' ORDER BY TABLE_NAME"))
                                         tables = [row[0] for row in result]
                                     elif db_type == 'oracle':
-                                        result = conn.execute(text(f"SELECT TABLE_NAME FROM USER_TABLES"))
+                                        result = conn.execute(text(f"SELECT TABLE_NAME FROM ALL_TABLES WHERE OWNER = '{db}' ORDER BY TABLE_NAME"))
+                                        tables = [row[0] for row in result]
+                                    elif db_type == 'mssqlserver':
+                                        result = conn.execute(text(f"SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = '{db}'"))
                                         tables = [row[0] for row in result]
                                     else:
                                         tables = []
                                     
                                     # 过滤用户有权限的表
                                     db_tables = allowed_tables.get(db, allowed_tables.get("*", []))
-                                    if "*" not in db_tables:
+                                    if "*" not in db_tables and db_tables:
                                         tables = [t for t in tables if t.lower() in [x.lower() for x in db_tables]]
                                     
                                     output.append(f"    可访问表 ({len(tables)}):")
@@ -246,7 +237,12 @@ class GetAllDatabaseInfoTool(ToolsBase):
                                                 row = result.fetchone()
                                                 if row and row[0]:
                                                     table_comment = f" ({row[0]})"
-                                            elif db_type in ['dameng', 'oracle']:
+                                            elif db_type == 'dameng':
+                                                result = conn.execute(text(f"SELECT COMMENTS FROM USER_TAB_COMMENTS WHERE TABLE_NAME='{table}'"))
+                                                row = result.fetchone()
+                                                if row and row[0]:
+                                                    table_comment = f" ({row[0]})"
+                                            elif db_type == 'oracle':
                                                 result = conn.execute(text(f"SELECT COMMENTS FROM USER_TAB_COMMENTS WHERE TABLE_NAME='{table}'"))
                                                 row = result.fetchone()
                                                 if row and row[0]:
@@ -271,14 +267,13 @@ class GetAllDatabaseInfoTool(ToolsBase):
                                                         comment_str = f" ({col_comment})" if col_comment else ""
                                                         output.append(f"        {col_name} ({col_type}){comment_str}")
                                             elif db_type == 'dameng':
+                                                # 达梦获取列信息
                                                 result = conn.execute(text(f"SELECT COLUMN_NAME, DATA_TYPE, DATA_LENGTH FROM USER_TAB_COLUMNS WHERE TABLE_NAME='{table}' ORDER BY COLUMN_ID"))
                                                 for row in result:
                                                     col_name = row[0]
                                                     col_type = f"{row[1]}({row[2]})" if row[2] else row[1]
-                                                    col_comment = ""
                                                     if show_all_cols or col_name.lower() in [c.lower() for c in cols_allowed]:
-                                                        comment_str = f" ({col_comment})" if col_comment else ""
-                                                        output.append(f"        {col_name} ({col_type}){comment_str}")
+                                                        output.append(f"        {col_name} ({col_type})")
                                             elif db_type == 'oracle':
                                                 result = conn.execute(text(f"SELECT COLUMN_NAME, DATA_TYPE, DATA_LENGTH, COMMENTS FROM USER_TAB_COLUMNS WHERE TABLE_NAME='{table}' ORDER BY COLUMN_ID"))
                                                 for row in result:
@@ -288,9 +283,25 @@ class GetAllDatabaseInfoTool(ToolsBase):
                                                     if show_all_cols or col_name.lower() in [c.lower() for c in cols_allowed]:
                                                         comment_str = f" ({col_comment})" if col_comment else ""
                                                         output.append(f"        {col_name} ({col_type}){comment_str}")
+                                            elif db_type == 'postgresql':
+                                                result = conn.execute(text(f"SELECT column_name, data_type, is_nullable, column_default FROM information_schema.columns WHERE table_schema = '{db}' AND table_name = '{table}' ORDER BY ordinal_position"))
+                                                for row in result:
+                                                    col_name = row[0]
+                                                    col_type = row[1]
+                                                    col_null = "NULL" if row[2] == "YES" else "NOT NULL"
+                                                    if show_all_cols or col_name.lower() in [c.lower() for c in cols_allowed]:
+                                                        output.append(f"        {col_name} ({col_type}) {col_null}")
+                                            elif db_type == 'mssqlserver':
+                                                result = conn.execute(text(f"SELECT COLUMN_NAME, DATA_TYPE, CHARACTER_MAXIMUM_LENGTH, IS_NULLABLE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = '{db}' AND TABLE_NAME = '{table}' ORDER BY ORDINAL_POSITION"))
+                                                for row in result:
+                                                    col_name = row[0]
+                                                    col_type = f"{row[1]}({row[2]})" if row[2] else row[1]
+                                                    col_null = "NULL" if row[3] == "YES" else "NOT NULL"
+                                                    if show_all_cols or col_name.lower() in [c.lower() for c in cols_allowed]:
+                                                        output.append(f"        {col_name} ({col_type}) {col_null}")
                                         except:
                                             pass
-                                            
+                                        
                                         # 检查行过滤
                                         row_filter = row_filters.get(f"{db}.{table}")
                                         if row_filter:
