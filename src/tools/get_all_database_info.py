@@ -57,6 +57,40 @@ class GetAllDatabaseInfoTool(ToolsBase):
             }
         )
 
+    def _is_table_allowed(self, table: str, allowed_tables: list) -> bool:
+        """检查表是否在允许列表中
+        
+        Args:
+            table: 表名
+            allowed_tables: 允许的表名列表
+            
+        Returns:
+            True 如果表在允许列表中，或者列表为空（无限制）
+        """
+        if not allowed_tables:
+            return True  # 无限制，允许所有表
+        return table.lower() in [t.lower() for t in allowed_tables]
+
+    def _filter_databases_by_permission(self, databases: list, pool_config: dict, db_type: str) -> list:
+        """根据权限配置过滤数据库列表
+        
+        Args:
+            databases: 从数据库获取的数据库列表
+            pool_config: 池配置
+            db_type: 数据库类型
+            
+        Returns:
+            过滤后的数据库列表
+        """
+        allowed_dbs = pool_config.get("allowed_databases", []) if pool_config else []
+        
+        # 如果权限是 *，返回所有数据库
+        if "*" in allowed_dbs:
+            return databases
+        
+        # 否则只返回配置中允许的数据库
+        return [db for db in databases if db in allowed_dbs or db.upper() in [d.upper() for d in allowed_dbs]]
+
     async def run_tool(self, arguments: Dict[str, Any]) -> Sequence[TextContent]:
         try:
             # 从请求上下文获取当前用户
@@ -222,10 +256,15 @@ class GetAllDatabaseInfoTool(ToolsBase):
                                     else:
                                         tables = []
                                     
-                                    # 过滤用户有权限的表
-                                    db_tables = allowed_tables.get(db, allowed_tables.get("*", []))
-                                    if "*" not in db_tables and db_tables:
-                                        tables = [t for t in tables if t.lower() in [x.lower() for x in db_tables]]
+                                    # 权限过滤：只返回用户有权限访问的表
+                                    # 优先使用数据库特定的配置，否则使用通配符配置
+                                    db_tables = allowed_tables.get(db, []) if allowed_tables else []
+                                    if not db_tables:
+                                        db_tables = allowed_tables.get("*", []) if allowed_tables else []
+                                    
+                                    # 应用表权限过滤
+                                    if db_tables and "*" not in db_tables:
+                                        tables = [t for t in tables if self._is_table_allowed(t, db_tables)]
                                     
                                     output.append(f"    可访问表 ({len(tables)}):")
                                     for table in tables[:20]:  # 限制显示数量
@@ -252,7 +291,7 @@ class GetAllDatabaseInfoTool(ToolsBase):
                                         
                                         output.append(f"      - {table}{table_comment}")
                                         
-                                        # 获取列信息
+                                        # 获取列权限配置
                                         cols_allowed = allowed_columns.get(f"{db}.{table}", allowed_columns.get(f"*.{table}", []))
                                         show_all_cols = "*" in cols_allowed or not cols_allowed
                                         
@@ -267,7 +306,7 @@ class GetAllDatabaseInfoTool(ToolsBase):
                                                         comment_str = f" ({col_comment})" if col_comment else ""
                                                         output.append(f"        {col_name} ({col_type}){comment_str}")
                                             elif db_type == 'dameng':
-                                                # 达梦获取列信息
+                                                # 达梦获取列信息 - 只获取有权限的列
                                                 result = conn.execute(text(f"SELECT COLUMN_NAME, DATA_TYPE, DATA_LENGTH FROM USER_TAB_COLUMNS WHERE TABLE_NAME='{table}' ORDER BY COLUMN_ID"))
                                                 for row in result:
                                                     col_name = row[0]
@@ -303,7 +342,7 @@ class GetAllDatabaseInfoTool(ToolsBase):
                                             pass
                                         
                                         # 检查行过滤
-                                        row_filter = row_filters.get(f"{db}.{table}")
+                                        row_filter = row_filters.get(f"{db}.{table}", row_filters.get(f"*.{table}"))
                                         if row_filter:
                                             output.append(f"        [行过滤: {row_filter}]")
                                     

@@ -69,10 +69,12 @@ class GetTableListTool(ToolsBase):
             allowed_tables: 允许的表名列表
             
         Returns:
-            True 如果表在允许列表中，或者列表为空（无限制）
+            True 如果表在允许列表中，或者列表为空/包含*（无限制）
         """
         if not allowed_tables:
             return True  # 无限制，允许所有表
+        if "*" in allowed_tables:
+            return True  # 通配符，允许所有表
         return table.lower() in [t.lower() for t in allowed_tables]
 
     async def run_tool(self, arguments: Dict[str, Any]) -> Sequence[TextContent]:
@@ -130,11 +132,11 @@ class GetTableListTool(ToolsBase):
                             result = conn.execute(text(f"SELECT table_name FROM information_schema.tables WHERE table_schema = '{database}'"))
                             tables = [row[0] for row in result]
                         elif db_type == 'dameng':
-                            # Dameng: 尝试从 USER_TABLES 获取当前 schema 的表
-                            result = conn.execute(text("SELECT TABLE_NAME FROM USER_TABLES"))
+                            # Dameng: 达梦按模式获取表列表，使用 ALL_TABLES 并指定 OWNER
+                            result = conn.execute(text(f"SELECT TABLE_NAME FROM ALL_TABLES WHERE OWNER = '{database}' ORDER BY TABLE_NAME"))
                             tables = [row[0] for row in result]
                         elif db_type == 'oracle':
-                            result = conn.execute(text("SELECT TABLE_NAME FROM USER_TABLES"))
+                            result = conn.execute(text(f"SELECT TABLE_NAME FROM ALL_TABLES WHERE OWNER = '{database}' ORDER BY TABLE_NAME"))
                             tables = [row[0] for row in result]
                         elif db_type == 'mssqlserver':
                             result = conn.execute(text(f"SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = '{database}'"))
@@ -150,7 +152,7 @@ class GetTableListTool(ToolsBase):
                         return [TextContent(type="text", text=f"获取表列表失败: {str(e)}")]
                     
                     # 权限过滤：只返回用户有权限访问的表
-                    if allowed_tables:
+                    if allowed_tables and "*" not in allowed_tables:
                         tables = [t for t in tables if self._is_table_allowed(t, allowed_tables)]
                     
                     if not tables:
