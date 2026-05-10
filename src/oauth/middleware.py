@@ -24,7 +24,6 @@ if not logger.handlers:
     logger.addHandler(handler)
 
 API_KEY_ENABLED = os.getenv("API_KEY_ENABLED", "false").lower() == "true"
-API_USER_CONFIG_FILE = os.getenv("API_USER_CONFIG_FILE", "./src/config/user_api_keys.json")
 
 class OAuthMiddleware(BaseHTTPMiddleware):
 
@@ -103,8 +102,6 @@ class OAuthMiddleware(BaseHTTPMiddleware):
         # API Key 认证（如果启用）
         if API_KEY_ENABLED:
             logger.info(f"[{request_id}] API Key 认证已启用")
-            logger.info(f"[{request_id}] API 用户配置文件: {API_USER_CONFIG_FILE}")
-            logger.info(f"[{request_id}] 所有请求头键: {list(request.headers.keys())}")
 
             api_name = (
                 request.headers.get("X-API-Name")
@@ -126,7 +123,6 @@ class OAuthMiddleware(BaseHTTPMiddleware):
 
             logger.info(f"[{request_id}] X-API-Name / name: {api_name}")
             logger.info(f"[{request_id}] X-API-Key / apikey: {api_key}")
-            logger.info(f"[{request_id}] X-Department / department: {department}")
 
             if not api_name or not api_key:
                 logger.warning(f"[{request_id}] 缺少 name 或 apikey")
@@ -134,10 +130,7 @@ class OAuthMiddleware(BaseHTTPMiddleware):
                     "error": "invalid_request",
                     "error_description": "Missing name or apikey"
                 }
-                logger.info(f"[{request_id}] 返回内容: {json.dumps(response_body, ensure_ascii=False)}")
-                logger.info(f"[{request_id}] 返回状态码: 401 Unauthorized")
                 response = JSONResponse(response_body, status_code=401)
-                logger.info(f"[{request_id}] ====== OAuth 中间件请求结束 ======\n")
                 return response
 
             user = validate_api_credentials(api_name, api_key)
@@ -147,10 +140,7 @@ class OAuthMiddleware(BaseHTTPMiddleware):
                     "error": "invalid_api_key",
                     "error_description": "Invalid name or apikey"
                 }
-                logger.info(f"[{request_id}] 返回内容: {json.dumps(response_body, ensure_ascii=False)}")
-                logger.info(f"[{request_id}] 返回状态码: 401 Unauthorized")
                 response = JSONResponse(response_body, status_code=401)
-                logger.info(f"[{request_id}] ====== OAuth 中间件请求结束 ======\n")
                 return response
 
             request.state.user = {
@@ -161,8 +151,6 @@ class OAuthMiddleware(BaseHTTPMiddleware):
             logger.info(f"[{request_id}] API 用户认证成功: {request.state.user}")
 
             response = await call_next(request)
-            logger.info(f"[{request_id}] 响应状态: {response.status_code}")
-            logger.info(f"[{request_id}] ====== OAuth 中间件请求结束 ======\n")
             return response
 
         # 获取认证头
