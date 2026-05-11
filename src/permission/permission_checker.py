@@ -155,12 +155,18 @@ class PermissionChecker:
         
         # 获取该数据库允许的表 - 优先使用数据库特定的配置
         tables_config = pool_config.get("allowed_tables", {})
-        tables_for_db = tables_config.get(database, [])
-        global_tables = tables_config.get("*", [])
         
-        # 如果数据库没有特定配置且有通配符配置，使用通配符
-        if not tables_for_db and global_tables:
-            tables_for_db = global_tables
+        # 尝试直接匹配（不区分大小写）
+        tables_for_db = []
+        database_lower = database.lower()
+        for key, value in tables_config.items():
+            if key.lower() == database_lower:
+                tables_for_db = value
+                break
+        
+        # 如果没有找到特定配置，尝试通配符
+        if not tables_for_db:
+            tables_for_db = tables_config.get("*", [])
         
         # 检查通配符
         if "*" in tables_for_db:
