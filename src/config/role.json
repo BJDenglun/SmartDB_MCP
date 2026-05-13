@@ -76,10 +76,10 @@
         "default": {
           "allowed_databases": ["SYSDBA"],
           "allowed_tables": {
-            "SYSDBA": ["s60_amo_sca_invest"]
+            "SYSDBA": ["s26_amo_sca_invest"]
           },
           "allowed_columns": {
-            "SYSDBA.s60_amo_sca_invest": ["*"]
+            "SYSDBA.s26_amo_sca_invest": ["*"]
           },
           "row_filters": {}
         }
