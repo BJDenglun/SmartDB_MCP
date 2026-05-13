@@ -183,7 +183,7 @@ def run_streamable_http(json_response: bool, oauth: bool):
                         try:
                             body_str = request_body.decode("utf-8")
                             logger.info(f"[{request_id}] 请求体: {body_str}")
-                        except:
+                        except UnicodeDecodeError:
                             logger.info(f"[{request_id}] 请求体: {request_body}")
                         return {"type": "http.request", "body": request_body, "more_body": body.get("more_body", False)}
                 return body
@@ -258,7 +258,7 @@ def run_streamable_http(json_response: bool, oauth: bool):
                             logger.info(f"[{request_id}] 响应体: {response_str[:2000]}... [已截断, 原始长度: {len(response_str)} 字符]")
                         else:
                             logger.info(f"[{request_id}] 响应体: {response_str}")
-                    except:
+                    except UnicodeDecodeError:
                         logger.info(f"[{request_id}] 响应体(二进制): {full_response_body[:500]}... [已截断]")
                 
                 logger.info(f"[{request_id}] ====== 请求结束 ======\n")

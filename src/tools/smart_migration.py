@@ -316,7 +316,7 @@ class SmartDatabaseMigration:
                 try:
                     conn.execute(text(sql))
                     inserted += 1
-                except:
+                except Exception:
                     break
             
             conn.commit()
@@ -348,7 +348,7 @@ class SmartDatabaseMigration:
                 try:
                     conn.execute(text(sql))
                     inserted += 1
-                except:
+                except Exception:
                     break
             
             conn.commit()

@@ -82,7 +82,7 @@ class OAuthMiddleware(BaseHTTPMiddleware):
                 try:
                     body_str = body.decode("utf-8")
                     logger.info(f"[{request_id}] 请求体: {body_str}")
-                except:
+                except UnicodeDecodeError:
                     logger.info(f"[{request_id}] 请求体(二进制): {body}")
             else:
                 logger.info(f"[{request_id}] 请求体: (空)")

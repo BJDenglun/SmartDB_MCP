@@ -31,29 +31,9 @@ class DamengTableDescription(TableDescription):
 
         # 将输入的表名按逗号分割成列表
         table_names = [name.strip() for name in table_name.split(',')]
-        
-        # 达梦数据库使用 USER_TAB_COLUMNS 和 USER_COL_COMMENTS
-        # 这些视图相对于当前连接用户，不需要额外的 schema 条件
-        table_condition = "','".join(table_names)
-        
-        # 构建 SQL 查询 - 达梦兼容的列
-        sql = f"""
-            SELECT 
-                A.COLUMN_NAME,
-                A.DATA_TYPE,
-                A.DATA_LENGTH,
-                A.DATA_PRECISION,
-                A.DATA_SCALE,
-                A.NULLABLE,
-                B.COMMENTS
-            FROM USER_TAB_COLUMNS A
-            LEFT JOIN USER_COL_COMMENTS B 
-                ON A.TABLE_NAME = B.TABLE_NAME 
-                AND A.COLUMN_NAME = B.COLUMN_NAME
-            WHERE A.TABLE_NAME IN ('{table_condition}')
-            ORDER BY A.COLUMN_ID
-        """
-        
-        sql_result = ExecuteSqlUtil.execute_single_statement(pool_name, sql)
+
+        sql, params = DamengQueries.get_table_description(schema, table_names)
+
+        sql_result = ExecuteSqlUtil.execute_single_statement(pool_name, sql, params)
 
         return ExecuteSqlUtil.format_result(sql_result)

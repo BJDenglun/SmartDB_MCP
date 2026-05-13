@@ -129,24 +129,30 @@ class GetTableListTool(ToolsBase):
                             result = conn.execute(text(f"SHOW TABLES FROM `{database}`"))
                             tables = [row[0] for row in result]
                         elif db_type == 'postgresql':
-                            result = conn.execute(text(f"SELECT table_name FROM information_schema.tables WHERE table_schema = '{database}'"))
+                            result = conn.execute(text(
+                                "SELECT table_name FROM information_schema.tables WHERE table_schema = :db"
+                            ), {"db": database})
                             tables = [row[0] for row in result]
                         elif db_type == 'dameng':
-                            # Dameng: 达梦按模式获取表列表，使用 ALL_TABLES 并指定 OWNER
-                            result = conn.execute(text(f"SELECT TABLE_NAME FROM ALL_TABLES WHERE OWNER = '{database}' ORDER BY TABLE_NAME"))
+                            result = conn.execute(text(
+                                "SELECT TABLE_NAME FROM ALL_TABLES WHERE OWNER = :db ORDER BY TABLE_NAME"
+                            ), {"db": database})
                             tables = [row[0] for row in result]
                         elif db_type == 'oracle':
-                            result = conn.execute(text(f"SELECT TABLE_NAME FROM ALL_TABLES WHERE OWNER = '{database}' ORDER BY TABLE_NAME"))
+                            result = conn.execute(text(
+                                "SELECT TABLE_NAME FROM ALL_TABLES WHERE OWNER = :db ORDER BY TABLE_NAME"
+                            ), {"db": database})
                             tables = [row[0] for row in result]
                         elif db_type == 'mssqlserver':
-                            result = conn.execute(text(f"SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = '{database}'"))
+                            result = conn.execute(text(
+                                "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = :db"
+                            ), {"db": database})
                             tables = [row[0] for row in result]
                         else:
-                            # 未知数据库类型，尝试通用的 USER_TABLES
                             try:
                                 result = conn.execute(text("SELECT TABLE_NAME FROM USER_TABLES"))
                                 tables = [row[0] for row in result]
-                            except:
+                            except Exception:
                                 return [TextContent(type="text", text=f"错误: 不支持未知数据库类型 '{db_type}'")]
                     except Exception as e:
                         return [TextContent(type="text", text=f"获取表列表失败: {str(e)}")]

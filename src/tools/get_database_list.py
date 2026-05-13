@@ -125,19 +125,19 @@ class GetDatabaseListTool(ToolsBase):
                                         try:
                                             result = conn.execute(text("SELECT DISTINCT OWNER FROM ALL_TABLES ORDER BY OWNER"))
                                             actual_dbs = [row[0] for row in result]
-                                        except:
+                                        except Exception:
                                             actual_dbs = []
                                         if not actual_dbs:
                                             try:
                                                 result = conn.execute(text("SELECT DISTINCT OWNER FROM USER_TABLES ORDER BY OWNER"))
                                                 actual_dbs = [row[0] for row in result]
-                                            except:
+                                            except Exception:
                                                 pass
                                         if not actual_dbs:
                                             try:
                                                 result = conn.execute(text("SELECT SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA') FROM DUAL"))
                                                 actual_dbs = [row[0] for row in result]
-                                            except:
+                                            except Exception:
                                                 actual_dbs = ['SYSDBA']
                                         for db in actual_dbs:
                                             output.append(f"  - {db}")
@@ -194,19 +194,19 @@ class GetDatabaseListTool(ToolsBase):
                                             try:
                                                 result = conn.execute(text("SELECT DISTINCT OWNER FROM ALL_TABLES ORDER BY OWNER"))
                                                 actual_dbs = [row[0] for row in result]
-                                            except:
+                                            except Exception:
                                                 actual_dbs = []
                                             if not actual_dbs:
                                                 try:
                                                     result = conn.execute(text("SELECT DISTINCT OWNER FROM USER_TABLES ORDER BY OWNER"))
                                                     actual_dbs = [row[0] for row in result]
-                                                except:
+                                                except Exception:
                                                     pass
                                             if not actual_dbs:
                                                 try:
                                                     result = conn.execute(text("SELECT SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA') FROM DUAL"))
                                                     actual_dbs = [row[0] for row in result]
-                                                except:
+                                                except Exception:
                                                     actual_dbs = ['SYSDBA']
                                             output.append(f"     数据库列表:")
                                             for db in actual_dbs:

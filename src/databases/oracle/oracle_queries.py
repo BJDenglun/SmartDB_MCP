@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Tuple, Dict, Any
 
 
 class OracleQueries:
@@ -13,7 +13,7 @@ class OracleQueries:
         return "SELECT * FROM v$version"
 
     @staticmethod
-    def get_table_names(database: str, text: str) -> str:
+    def get_table_names(database: str, text: str) -> Tuple[str, Dict[str, Any]]:
         """
         根据注释获取表名的SQL查询
 
@@ -22,10 +22,10 @@ class OracleQueries:
             text: 表注释关键词
 
         Returns:
-            SQL查询语句
+            (SQL查询语句, 参数字典)
         """
 
-        sql = f"""
+        sql = """
             SELECT
                 owner AS table_schema,
                 table_name,
@@ -33,17 +33,19 @@ class OracleQueries:
             FROM
                 all_tab_comments
             WHERE
-                owner = '{database}'
+                owner = :database
         """
+        params = {"database": database}
 
         if "SEARCH_ALL_TABLES" != text:
-            sql += (f"AND ((comments IS NOT NULL AND UPPER(comments) LIKE UPPER('%{text}%'))"
-                    f"OR ( UPPER(table_name) LIKE UPPER('%{text}%')))")
+            sql += ("AND ((comments IS NOT NULL AND UPPER(comments) LIKE UPPER(:text))"
+                    "OR ( UPPER(table_name) LIKE UPPER(:text)))")
+            params["text"] = f"%{text}%"
 
-        return sql
+        return sql, params
 
     @staticmethod
-    def get_table_description(database: str, table_names: List[str]) -> str:
+    def get_table_description(database: str, table_names: List[str]) -> Tuple[str, Dict[str, Any]]:
         """
         获取表结构描述的SQL查询
 
@@ -52,9 +54,13 @@ class OracleQueries:
             table_names: 表名列表
 
         Returns:
-            SQL查询语句
+            (SQL查询语句, 参数字典)
         """
-        table_condition = "','".join(table_names)
+        placeholders = ", ".join([f":t{i}" for i in range(len(table_names))])
+        params = {"database": database}
+        for i, name in enumerate(table_names):
+            params[f"t{i}"] = name
+
         return f"""
                SELECT
                     col.table_name,
@@ -69,14 +75,19 @@ class OracleQueries:
                         AND col.table_name = com.table_name
                         AND col.column_name = com.column_name
                 WHERE
-                    col.owner = '{database}'
-                  AND col.table_name IN ('{table_condition}')  
+                    col.owner = :database
+                  AND col.table_name IN ({placeholders})
                 ORDER BY
                     col.table_name, col.column_id
-               """
+               """, params
+
     @staticmethod
-    def get_table_index(database: str, table_names: List[str]):
-        table_condition = "','".join(table_names)
+    def get_table_index(database: str, table_names: List[str]) -> Tuple[str, Dict[str, Any]]:
+        placeholders = ", ".join([f":t{i}" for i in range(len(table_names))])
+        params = {"database": database}
+        for i, name in enumerate(table_names):
+            params[f"t{i}"] = name
+
         return f"""
             SELECT
                 i.table_name AS TABLE_NAME,
@@ -93,28 +104,28 @@ class OracleQueries:
                     AND i.table_owner = c.table_owner
                     AND i.table_name = c.table_name
             WHERE
-                i.table_owner = '{database}'  
-              AND i.table_name IN ('{table_condition}') 
+                i.table_owner = :database
+              AND i.table_name IN ({placeholders})
             ORDER BY
                 i.table_name, i.index_name, c.column_position
-        """
+        """, params
 
     @staticmethod
-    def get_max_connections():
+    def get_max_connections() -> str:
         return """
-        SELECT 
-            resource_name, 
-            current_utilization, 
-            max_utilization, 
-            limit_value 
-        FROM 
-            v$resource_limit 
-        WHERE 
+        SELECT
+            resource_name,
+            current_utilization,
+            max_utilization,
+            limit_value
+        FROM
+            v$resource_limit
+        WHERE
             resource_name = 'processes'
         """
 
     @staticmethod
-    def get_current_connections ():
+    def get_current_connections() -> str:
         return """
         SELECT
             s.sid,
@@ -149,10 +160,10 @@ class OracleQueries:
         """
 
     @staticmethod
-    def get_blocking():
+    def get_blocking() -> str:
         return """
         WITH blocking_tree AS (
-            SELECT 
+            SELECT
                 'alter system kill session ''' || s.sid || ',' || s.serial# || ',@' || s.inst_id || ''' immediate;' AS kill_command,
                 SYS_CONNECT_BY_PATH(s.sid || '@' || s.inst_id, ' ← ') AS blocking_path,
                 s.inst_id,
@@ -170,24 +181,24 @@ class OracleQueries:
                 CONNECT_BY_ISLEAF AS is_blocked_end,
                 LEVEL AS blocking_level,
                 CASE WHEN lo.xidusn IS NOT NULL THEN 'YES' ELSE 'NO' END AS holds_locked_object
-            FROM 
+            FROM
                 gv$session s
                 LEFT JOIN gv$locked_object lo ON s.sid = lo.session_id AND s.inst_id = lo.inst_id
-            WHERE 
-                s.blocking_session IS NOT NULL  
-            CONNECT BY 
+            WHERE
+                s.blocking_session IS NOT NULL
+            CONNECT BY
                 (s.sid || '@' || s.inst_id) = PRIOR (s.blocking_session || '@' || s.blocking_instance)
-            START WITH 
+            START WITH
                 s.blocking_session IS NOT NULL
         ),
-       
+
         sql_texts AS (
-            SELECT DISTINCT sql_id, sql_text 
-            FROM gv$sql 
+            SELECT DISTINCT sql_id, sql_text
+            FROM gv$sql
             WHERE sql_id IN (SELECT sql_id FROM blocking_tree WHERE sql_id IS NOT NULL)
         )
-        
-        SELECT 
+
+        SELECT
             bt.kill_command,
             bt.blocking_path,
             bt.inst_id,
@@ -202,17 +213,17 @@ class OracleQueries:
             bt.blocking_level,
             bt.holds_locked_object,
             st.sql_text
-        FROM 
+        FROM
             blocking_tree bt
             LEFT JOIN sql_texts st ON bt.sql_id = st.sql_id
-        ORDER BY 
+        ORDER BY
             bt.blocking_level DESC, bt.sid
-        
+
         """
     @staticmethod
-    def get_locking():
+    def get_locking() -> str:
         return """
-            SELECT 
+            SELECT
                 do.object_name,
                 lo.session_id,
                 lo.inst_id,
@@ -220,17 +231,17 @@ class OracleQueries:
                 lo.os_user_name,
                 lo.process,
                 lo.locked_mode
-            FROM 
+            FROM
                 gv$locked_object lo
                 JOIN dba_objects do ON lo.object_id = do.object_id
-            ORDER BY 
+            ORDER BY
                 lo.inst_id, lo.session_id
         """
 
     @staticmethod
-    def get_trx():
+    def get_trx() -> str:
         return """
-        SELECT 
+        SELECT
             s.inst_id,
             s.sid,
             s.serial#,
@@ -242,33 +253,33 @@ class OracleQueries:
             ROUND(SYSDATE - t.start_time, 2) * 24 * 60 AS duration_minutes,
             s.sql_id,
             sq.sql_text
-        FROM 
+        FROM
             gv$transaction t
             JOIN gv$session s ON t.addr = s.taddr
             LEFT JOIN gv$sql sq ON s.sql_id = sq.sql_id AND sq.inst_id = s.inst_id
-        WHERE 
-            (SYSDATE - t.start_time) > INTERVAL '5' MINUTE 
-        ORDER BY 
+        WHERE
+            (SYSDATE - t.start_time) > INTERVAL '5' MINUTE
+        ORDER BY
             duration_minutes DESC
         """
 
     @staticmethod
-    def get_buffer_pool():
+    def get_buffer_pool() -> str:
         return """
-        SELECT 
+        SELECT
             (1 - (phy.value / (cur.value + con.value))) * 100 AS buffer_hit_ratio
-        FROM 
+        FROM
             v$sysstat cur, v$sysstat con, v$sysstat phy
-        WHERE 
-            cur.name = 'db block gets' 
-            AND con.name = 'consistent gets' 
+        WHERE
+            cur.name = 'db block gets'
+            AND con.name = 'consistent gets'
             AND phy.name = 'physical reads'
         """
 
     @staticmethod
-    def get_tmp_table():
+    def get_tmp_table() -> str:
         return """
-        SELECT 
+        SELECT
             h.tablespace_name,
             ROUND(SUM(h.bytes_used) / 1024 / 1024, 2) AS used_mb,
             ROUND(SUM(h.bytes_free) / 1024 / 1024, 2) AS free_mb,
@@ -277,20 +288,20 @@ class OracleQueries:
                 (SUM(h.bytes_used) / GREATEST(SUM(h.bytes_used + h.bytes_free), 1)) * 100,
                 2
             ) AS pct_used
-        FROM 
+        FROM
             v$temp_space_header h
-        GROUP BY 
+        GROUP BY
             h.tablespace_name
 
         """
 
     @staticmethod
-    def get_io_info():
+    def get_io_info() -> str:
         return """
         SELECT
-            event,                                
+            event,
             total_waits,
-            time_waited * 10 AS time_waited_ms,   
+            time_waited * 10 AS time_waited_ms,
             average_wait * 10 AS avg_wait_ms
         FROM
             v$system_event
@@ -301,30 +312,30 @@ class OracleQueries:
         """
 
     @staticmethod
-    def get_sga_status():
+    def get_sga_status() -> str:
         return """
-        SELECT 
+        SELECT
             pool,
             name,
             ROUND(bytes/1024/1024, 2) AS size_mb
-        FROM 
+        FROM
             v$sgastat
-        WHERE 
+        WHERE
             name IN ('free memory')
             AND pool IN ('DEFAULT buffer cache', 'shared pool')
-        ORDER BY 
+        ORDER BY
             pool, bytes DESC
         """
 
     @staticmethod
-    def get_pga_status():
+    def get_pga_status() -> str:
         return """
-        SELECT 
-            name, 
+        SELECT
+            name,
             ROUND(value/1024/1024, 2) AS mb
-        FROM 
-            v$pgastat 
-        WHERE 
+        FROM
+            v$pgastat
+        WHERE
             name IN (
                 'aggregate PGA target parameter',
                 'total PGA allocated',
@@ -335,14 +346,17 @@ class OracleQueries:
         """
 
     @staticmethod
-    def get_sga_total():
+    def get_sga_total() -> str:
         return """
         SELECT * FROM v$sga
         """
 
     @staticmethod
-    def get_table_size(database: str, table_names: List[str]):
-        table_condition = "','".join(table_names)
+    def get_table_size(database: str, table_names: List[str]) -> Tuple[str, Dict[str, Any]]:
+        placeholders = ", ".join([f":t{i}" for i in range(len(table_names))])
+        params = {"database": database}
+        for i, name in enumerate(table_names):
+            params[f"t{i}"] = name
 
         return f"""
         SELECT
@@ -353,16 +367,16 @@ class OracleQueries:
             dba_segments
         WHERE
             segment_type = 'TABLE'
-        AND segment_name IN ('{table_condition}')
-        AND OWNER = '{database}'
+        AND segment_name IN ({placeholders})
+        AND OWNER = :database
         GROUP BY
             owner, segment_name
         ORDER BY
             SUM(bytes) DESC
-        """
+        """, params
 
     @staticmethod
-    def get_table_space():
+    def get_table_space() -> str:
         return """
         SELECT
             upper(f.tablespace_name) AS "表空间名称",

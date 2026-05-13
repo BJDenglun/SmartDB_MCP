@@ -14,8 +14,8 @@ class MSSQLServerTableName(TableName):
             schema = db_config.get("schema", "dbo")
 
 
-        sql = MSSQLServerQueries.get_table_names(database, schema, text)
+        sql, params = MSSQLServerQueries.get_table_names(database, schema, text)
 
-        sql_result = ExecuteSqlUtil.execute_single_statement(pool_name, sql)
+        sql_result = ExecuteSqlUtil.execute_single_statement(pool_name, sql, params)
 
         return ExecuteSqlUtil.format_result(sql_result)

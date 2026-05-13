@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m py_compile src/databases/postgresql/postgresql_queries.py src/databases/oracle/oracle_queries.py src/databases/mssqlserver/mssqlserver_queries.py src/databases/dameng/dameng_queries.py src/tools/get_table_desc.py src/tools/get_table_list.py src/tools/get_database_list.py src/tools/smart_migration.py src/core/server.py src/oauth/middleware.py)",
+      "Bash(python -m py_compile src/config/user_config.py src/config/role_config.py src/config/dbconfig.py src/permission/permission_checker.py)",
+      "Bash(python -c ' *)",
+      "Bash(python -m py_compile src/databases/dameng/dameng_table_description.py src/databases/dameng/dameng_table_name.py src/databases/dameng/dameng_table_index.py src/databases/dameng/dameng_optimize.py)",
+      "Bash(python -m py_compile src/databases/mysql/mysql_table_name.py src/databases/mysql/mysql_table_description.py src/databases/mysql/mysql_table_index.py src/databases/mysql/mysql_health.py src/databases/mysql/mysql_optimize.py src/databases/postgresql/postgresql_table_name.py src/databases/postgresql/postgresql_table_description.py src/databases/postgresql/postgresql_table_index.py src/databases/postgresql/postgresql_health.py src/databases/postgresql/postgresql_optimize.py)",
+      "Bash(python -m py_compile src/databases/oracle/oracle_table_name.py src/databases/oracle/oracle_table_description.py src/databases/oracle/oracle_table_index.py src/databases/oracle/oracle_optimize.py src/databases/mssqlserver/mssqlserver_table_name.py src/databases/mssqlserver/mssqlserver_table_description.py src/databases/mssqlserver/mssqlserver_table_index.py src/databases/mssqlserver/mssqlserver_health.py)",
+      "Bash(python -m py_compile src/databases/*.py src/tools/*.py src/config/*.py src/utils/*.py src/core/*.py src/oauth/*.py)",
+      "Bash(python -m py_compile src/utils/execute_sql_util.py)",
+      "Bash(python)",
+      "Bash(rm -rf src/utils/__pycache__)"
+    ]
+  }
+}

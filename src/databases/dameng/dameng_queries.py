@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Tuple, Dict, Any
 
 
 class DamengQueries:
@@ -13,7 +13,7 @@ class DamengQueries:
         return "SELECT * FROM V$INSTANCE"
 
     @staticmethod
-    def get_table_description(schema: str, table_names: List[str]) -> str:
+    def get_table_description(schema: str, table_names: List[str]) -> Tuple[str, Dict[str, Any]]:
         """
         获取表结构描述的SQL查询
 
@@ -22,9 +22,13 @@ class DamengQueries:
             table_names: 表名列表
 
         Returns:
-            SQL查询语句
+            (SQL查询语句, 参数字典)
         """
-        table_condition = "','".join(table_names)
+        placeholders = ", ".join([f":t{i}" for i in range(len(table_names))])
+        params = {"schema": schema}
+        for i, name in enumerate(table_names):
+            params[f"t{i}"] = name
+
         return f"""
               SELECT A.COLUMN_NAME,
                 A.DATA_TYPE,
@@ -33,15 +37,15 @@ class DamengQueries:
                 A.DATA_SCALE,
                 A.NULLABLE,
                 B.COMMENTS FROM ALL_TAB_COLUMNS A
-            LEFT JOIN ALL_COL_COMMENTS B 
-                ON A.TABLE_NAME = B.TABLE_NAME 
+            LEFT JOIN ALL_COL_COMMENTS B
+                ON A.TABLE_NAME = B.TABLE_NAME
                 AND A.COLUMN_NAME = B.COLUMN_NAME
-            WHERE A.TABLE_NAME in ( '{table_condition}')
-            AND B.SCHEMA_NAME = '{schema}'
-               """
+            WHERE A.TABLE_NAME in ({placeholders})
+            AND B.SCHEMA_NAME = :schema
+               """, params
 
     @staticmethod
-    def get_table_names(schema: str, text: str) -> str:
+    def get_table_names(schema: str, text: str) -> Tuple[str, Dict[str, Any]]:
         """
         根据注释获取表名的SQL查询
 
@@ -50,73 +54,78 @@ class DamengQueries:
             text: 表注释关键词
 
         Returns:
-            SQL查询语句
+            (SQL查询语句, 参数字典)
         """
 
-        sql = f"""
-         SELECT 
+        sql = """
+         SELECT
             OWNER           AS TABLE_SCHEMA,
             TABLE_NAME,
             COMMENTS        AS TABLE_COMMENT
-        FROM 
+        FROM
             ALL_TAB_COMMENTS
-        WHERE 
-            OWNER = '{schema}'  
-            AND TABLE_TYPE = 'TABLE'  
+        WHERE
+            OWNER = :schema
+            AND TABLE_TYPE = 'TABLE'
          """
+        params = {"schema": schema}
 
         if "SEARCH_ALL_TABLES" != text:
-            sql += f"AND ( COMMENTS LIKE '%{text}%' or TABLE_NAME LIKE '%{text}%'); "
+            sql += "AND ( COMMENTS LIKE :text or TABLE_NAME LIKE :text) "
+            params["text"] = f"%{text}%"
 
-        return sql
+        return sql, params
 
     @staticmethod
-    def get_table_index(schema: str, table_names: List[str]):
-        table_condition = "','".join(table_names)
+    def get_table_index(schema: str, table_names: List[str]) -> Tuple[str, Dict[str, Any]]:
+        placeholders = ", ".join([f":t{i}" for i in range(len(table_names))])
+        params = {"schema": schema}
+        for i, name in enumerate(table_names):
+            params[f"t{i}"] = name
+
         return f"""
-            SELECT 
+            SELECT
                 A.TABLE_NAME,
                 A.INDEX_NAME,
                 A.COLUMN_NAME,
                 A.COLUMN_POSITION AS SEQ_IN_INDEX,
-                CASE 
-                    WHEN B.UNIQUENESS = 'UNIQUE' THEN 0 
-                    ELSE 1 
+                CASE
+                    WHEN B.UNIQUENESS = 'UNIQUE' THEN 0
+                    ELSE 1
                 END AS NON_UNIQUE,
                 B.INDEX_TYPE
-            FROM 
+            FROM
                 ALL_IND_COLUMNS A
-            JOIN 
-                ALL_INDEXES B 
-                ON A.INDEX_OWNER = B.OWNER 
+            JOIN
+                ALL_INDEXES B
+                ON A.INDEX_OWNER = B.OWNER
                 AND A.INDEX_NAME = B.INDEX_NAME
                 AND A.TABLE_NAME = B.TABLE_NAME
-            WHERE 
-                A.INDEX_OWNER = '{schema}'           
-                AND A.TABLE_NAME IN ('{table_condition}')
-            ORDER BY 
-                A.TABLE_NAME, 
-                A.INDEX_NAME, 
+            WHERE
+                A.INDEX_OWNER = :schema
+                AND A.TABLE_NAME IN ({placeholders})
+            ORDER BY
+                A.TABLE_NAME,
+                A.INDEX_NAME,
                 A.COLUMN_POSITION
-        """
+        """, params
 
     @staticmethod
-    def get_current_connections():
+    def get_current_connections() -> str:
         return "SELECT * FROM V$SESSIONS"
 
     @staticmethod
-    def get_active_session():
+    def get_active_session() -> str:
         return "SELECT * FROM V$SESSIONS WHERE STATE = 'ACTIVE';"
 
     @staticmethod
-    def get_max_connections():
+    def get_max_connections() -> str:
         return "SELECT PARA_VALUE AS MAX_SESSIONS FROM V$DM_INI WHERE PARA_NAME = 'MAX_SESSIONS';"
 
-
     @staticmethod
-    def get_locking_session():
+    def get_locking_session() -> str:
         return """
-        SELECT 
+        SELECT
             blocker.SESS_ID AS BLOCKER_SESS_ID,
             blocker.CLNT_IP AS BLOCKER_IP,
             blocker.USER_NAME AS BLOCKER_USER,
@@ -128,21 +137,21 @@ class DamengQueries:
             waiter.SQL_TEXT AS WAITER_SQL,
             DBMS_LOB.SUBSTR(SF_GET_SESSION_SQL(waiter.SESS_ID)) AS WAITER_FULL_SQL,
             tab.NAME AS LOCKED_TABLE,
-            lock.LTYPE AS LOCK_TYPE,        
-            lock.LMODE AS LOCK_MODE,        
-            lock.BLOCKED AS IS_BLOCKED      
+            lock.LTYPE AS LOCK_TYPE,
+            lock.LMODE AS LOCK_MODE,
+            lock.BLOCKED AS IS_BLOCKED
         FROM V$TRXWAIT tw
-        JOIN V$SESSIONS waiter ON tw.ID = waiter.TRX_ID           
-        JOIN V$SESSIONS blocker ON tw.WAIT_FOR_ID = blocker.TRX_ID 
+        JOIN V$SESSIONS waiter ON tw.ID = waiter.TRX_ID
+        JOIN V$SESSIONS blocker ON tw.WAIT_FOR_ID = blocker.TRX_ID
         JOIN V$LOCK lock ON waiter.TRX_ID = lock.TRX_ID AND lock.BLOCKED = 1
         JOIN SYSOBJECTS tab ON lock.TABLE_ID = tab.ID
         WHERE lock.BLOCKED = 1;
         """
 
     @staticmethod
-    def get_lock_info():
+    def get_lock_info() -> str:
         return """
-        SELECT 
+        SELECT
             s.CLNT_IP,
             s.USER_NAME,
             s.SQL_TEXT,
@@ -157,20 +166,20 @@ class DamengQueries:
         """
 
     @staticmethod
-    def get_buffer_pool():
+    def get_buffer_pool() -> str:
         return """
-        SELECT 
+        SELECT
             NAME AS BUFFER_POOL_NAME,
             SUM(PAGE_SIZE) / 1024 AS BUFFER_POOL_SIZE_MB,
             SUM(RAT_HIT) / COUNT(*) AS HIT_RATIO
-        FROM V$BUFFERPOOL 
+        FROM V$BUFFERPOOL
         GROUP BY NAME;
         """
 
     @staticmethod
-    def get_tmp_table():
+    def get_tmp_table() -> str:
         return """
-        SELECT 
+        SELECT
             DF.ID AS FILE_ID,
             DF.PATH AS FILE_PATH,
             DF.TOTAL_SIZE AS TOTAL_PAGES,
@@ -185,7 +194,7 @@ class DamengQueries:
         """
 
     @staticmethod
-    def get_io_info():
+    def get_io_info() -> str:
         return """
         SELECT
             EVENT,
@@ -198,9 +207,9 @@ class DamengQueries:
         """
 
     @staticmethod
-    def get_sga_status():
+    def get_sga_status() -> str:
         return """
-        SELECT 
+        SELECT
             NAME AS MEMORY_POOL,
             SUM(TOTAL_SIZE) / 1024 / 1024 AS TOTAL_SIZE_MB,
             SUM(DATA_SIZE) / 1024 / 1024 AS USED_SIZE_MB,
@@ -210,9 +219,9 @@ class DamengQueries:
         """
 
     @staticmethod
-    def get_pga_status():
+    def get_pga_status() -> str:
         return """
-        SELECT 
+        SELECT
             NAME AS PGA_STAT_NAME,
             STAT_VAL AS PGA_VALUE
         FROM V$SYSSTAT
@@ -220,9 +229,9 @@ class DamengQueries:
         """
 
     @staticmethod
-    def get_sga_total():
+    def get_sga_total() -> str:
         return """
-        SELECT 
+        SELECT
             NAME AS PARAMETER_NAME,
             VALUE AS PARAMETER_VALUE
         FROM V$PARAMETER
@@ -230,9 +239,9 @@ class DamengQueries:
         """
 
     @staticmethod
-    def get_table_space():
+    def get_table_space() -> str:
         return """
-        SELECT 
+        SELECT
             TS.NAME AS TABLESPACE_NAME,
             DF.TOTAL_SIZE * DF.PAGE_SIZE / 1024 / 1024 AS TOTAL_SIZE_MB,
             (DF.TOTAL_SIZE - DF.FREE_SIZE) * DF.PAGE_SIZE / 1024 / 1024 AS USED_SIZE_MB,
@@ -243,22 +252,25 @@ class DamengQueries:
         """
 
     @staticmethod
-    def get_table_size(schema: str, table_names: List[str]) -> str:
-        table_condition = "','".join(table_names)
+    def get_table_size(schema: str, table_names: List[str]) -> Tuple[str, Dict[str, Any]]:
+        placeholders = ", ".join([f":t{i}" for i in range(len(table_names))])
+        params = {"schema": schema}
+        for i, name in enumerate(table_names):
+            params[f"t{i}"] = name
 
         return f"""
-        SELECT 
+        SELECT
             OWNER,
             SEGMENT_NAME AS "Table",
             ROUND(SUM(BYTES) / 1024 / 1024, 2) AS "Size (MB)"
-        FROM 
+        FROM
             DBA_SEGMENTS
-        WHERE 
+        WHERE
             SEGMENT_TYPE = 'TABLE'
-            AND SEGMENT_NAME IN ('{table_condition}')
-            AND OWNER = '{schema}'
-        GROUP BY 
+            AND SEGMENT_NAME IN ({placeholders})
+            AND OWNER = :schema
+        GROUP BY
             OWNER, SEGMENT_NAME
-        ORDER BY 
+        ORDER BY
             SUM(BYTES) DESC
-        """
+        """, params

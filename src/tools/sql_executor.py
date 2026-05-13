@@ -123,7 +123,7 @@ class ExecuteSQLTool(ToolsBase):
                             insert_pos = where_pos_in_original + 5 + keyword_pos
                             break
                 
-                return sql[:insert_pos] + f" WHERE {row_filter}" + sql[insert_pos:]
+                return sql[:insert_pos] + f" WHERE ({row_filter})" + sql[insert_pos:]
         else:
             # 没有 WHERE 子句，添加到表名后
             # 查找 FROM 后的表名结束位置
@@ -137,7 +137,7 @@ class ExecuteSQLTool(ToolsBase):
                 table_name_end_in_original = original_from_pos + len(table_name)
                 
                 # 在表名后添加 WHERE 条件
-                return sql[:table_name_end_in_original] + f" WHERE {row_filter}" + sql[table_name_end_in_original:]
+                return sql[:table_name_end_in_original] + f" WHERE ({row_filter})" + sql[table_name_end_in_original:]
         
         return sql
 
@@ -193,9 +193,10 @@ class ExecuteSQLTool(ToolsBase):
             row_filter = perm_result.row_filter
             
         except Exception as e:
-            # 权限检查失败，记录错误但不阻止执行
+            # 权限检查失败，记录错误并拒绝执行
             import logging
             logging.getLogger(__name__).error(f"权限检查异常: {e}")
+            return [TextContent(type="text", text=f"❌ 权限检查失败(系统错误): {str(e)}")]
 
         # 记录 SQL 执行开始时间
         start_time = time.time()
